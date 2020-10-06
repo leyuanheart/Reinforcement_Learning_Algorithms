@@ -3,15 +3,12 @@
 """
 Created on Wed Aug 26 16:20:23 2020
 
-@author: didi
+@author: leyuan
 """
 
 import math
-import numpy as np
-import pandas as pd
-import pickle
-import os
-import random
+
+
 import torch
 import torch.nn as nn
 import torch.optim as optim

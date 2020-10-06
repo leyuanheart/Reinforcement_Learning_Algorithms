@@ -3,21 +3,13 @@
 """
 Created on Wed Aug 26 17:01:42 2020
 
-@author: didi
+@author: leyuan
 """
 
 
 import numpy as np
-import pandas as pd
-import random
-import matplotlib.pyplot as plt
-from timeit import default_timer as timer
-from datetime import timedelta
 import os
 import pickle
-from timeit import default_timer as timer
-from datetime import timedelta
-from IPython.display import clear_output
 
 
 import torch
@@ -39,8 +31,11 @@ class DQNAgentPytorch(object):
             
             self.env_name = env_name
             self.env = gym.make(env_name)
+            self.env.seed(config.training_env_seed)
+            
             self.obs_dim = self.env.observation_space.shape[0]   # 根据环境来设置
             self.action_dim = self.env.action_space.n
+            
             self.eval_mode = eval_mode
             
             self.gamma = config.gamma
@@ -64,6 +59,7 @@ class DQNAgentPytorch(object):
             
             
             self.network = network
+            self.device = config.device
             self.double = double
             
     
@@ -71,6 +67,10 @@ class DQNAgentPytorch(object):
             self.target_model = self.network(self.obs_dim, self.action_dim)
             self.target_model.load_state_dict(self.model.state_dict())
             
+            # move to correct device
+            self.model = self.model.to(self.device)
+            self.target_model.to(self.device)
+                
             # train和eval模式的差别主要是Batch Normalization和Dropout的使用差别
             if self.eval_mode:
                 self.model.eval()
@@ -80,6 +80,7 @@ class DQNAgentPytorch(object):
                 self.target_model.train()
             
             self.optimizer = optim.Adam(self.model.parameters(), self.lr)
+            # self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=500000, gamma = 0.1)
             self.loss = nn.SmoothL1Loss(reduction='none')
                     
             self.update_count = 0
@@ -106,11 +107,11 @@ class DQNAgentPytorch(object):
             #     obses_t, actions, rewards, obses_tp1, dones = transitions
             obses_t, actions, rewards, obses_tp1, dones = zip(*transitions)
             
-            obses_t = torch.tensor(obses_t, dtype=torch.float)
-            actions = torch.tensor(actions, dtype=torch.long).squeeze().view(-1, 1)
-            rewards = torch.tensor(rewards, dtype=torch.float).squeeze().view(-1, 1)
-            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float)
-            dones = torch.tensor(dones, dtype=torch.int32).squeeze().view(-1, 1)  
+            obses_t = torch.tensor(obses_t, dtype=torch.float, device=self.device)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device).squeeze().view(-1, 1)
+            rewards = torch.tensor(rewards, dtype=torch.float, device=self.device).squeeze().view(-1, 1)
+            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float, device=self.device)
+            dones = torch.tensor(dones, dtype=torch.int32, device=self.device).squeeze().view(-1, 1)  
             
             
             # compute loss
@@ -141,9 +142,10 @@ class DQNAgentPytorch(object):
             # optimize the model
             self.optimizer.zero_grad()
             loss.backward()
-            for param in self.model.parameters():      # 梯度裁剪非常有用！！！
-                param.grad.data.clamp(-1, 1)
+            # for param in self.model.parameters():      # 梯度裁剪非常有用！！！
+            #     param.grad.data.clamp(-1, 1)
             self.optimizer.step()
+            # self.scheduler.step()
                    
             self.losses.append(loss.item())
             
@@ -151,6 +153,16 @@ class DQNAgentPytorch(object):
             self.update_count += 1
             if self.update_count % self.target_net_update_freq == 0:
                 self.target_model.load_state_dict(self.model.state_dict())
+                
+            '''
+            也可以使用soft update: traget_weight = (1 - 0.999) * model_weight + 0.999 * target_weight
+            '''
+            params = self.model.state_dict()
+            target_params = self.target_model.state_dict()
+            names = list(params.keys())
+            for name in names:
+                target_params[name] = (1 - 0.999) * params[name] + 0.999 * target_params[name]
+            self.target_model.load_state_dict(target_params)
                 
             
             # 这一段可以放在training loop里
@@ -160,14 +172,16 @@ class DQNAgentPytorch(object):
             #         self.render()
                 
         
-        def eval_(self, n_trajs):
-            env = gym.make(self.env_name)
-            self.eval = True
-            episode_return = 0
-            episode_length = 0            
+        def eval_(self, env, n_trajs):
+            self.eval_mode = True
+            self.model.eval()
+                   
             for _ in range(n_trajs):
+                episode_return = 0
+                episode_length = 0     
                 obs = env.reset()
-                for _ in range(1000):
+                
+                for _ in range(10000):
                     a = self.get_action(obs)
                     obs, reward, done, info = env.step(a)
                     episode_return += reward
@@ -176,13 +190,11 @@ class DQNAgentPytorch(object):
                     if done:
                         self.rewards.append(episode_return)
                         self.episode_length.append(episode_length)
-                        episode_return = 0
-                        episode_length = 0
                         break
                         
             # print('eval {} trajs, mean return: {}'.format(n_trajs, np.mean(episode_returns)))
-            env.close()
-            self.eval = False
+            self.model.train()
+            self.eval_mode = False
             return np.mean(self.rewards[-n_trajs:]), np.max(self.rewards[-n_trajs:]), np.mean(self.episode_length[-n_trajs:]), np.max(self.episode_length[-n_trajs:])
         
 
@@ -192,7 +204,7 @@ class DQNAgentPytorch(object):
                 if np.random.random() >= eps or self.eval_mode:
                     # print(s.dtype)
                     obs = np.expand_dims(obs, 0)
-                    obs = torch.tensor(obs, dtype=torch.float)
+                    obs = torch.tensor(obs, dtype=torch.float, device=self.device)
                     a = self.model(obs).max(dim=1)[1]
                     return a.item()
                 else:
@@ -220,12 +232,12 @@ class DQNAgentPytorch(object):
         
         def save_w(self):
             # Returns a dictionary containing a whole state of the module.
-            torch.save(self.model.state_dict(), './model.dump')
-            torch.save(self.optimizer.state_dict(), './optim.dump')
+            torch.save(self.model.state_dict(), './model.pt')
+            torch.save(self.optimizer.state_dict(), './optim.pt')
             
         def load_w(self):
-            fname_model = './model.dump'
-            fname_optim = './optim.dump'
+            fname_model = './model.pt'
+            fname_optim = './optim.pt'
             
             if os.path.isfile(fname_model):
                 self.model.load_state_dict(torch.load(fname_model))
@@ -248,17 +260,17 @@ class DQNAgentPytorch(object):
             return 0.5 * x.pow(2) * cond + delta * (x.abs() - 0.5 * delta) * (1 - cond)
         
         
-        def render(self):
-            env = gym.make(self.env_name)
-            self.eval = True
+        def render(self, env):
+            self.eval_mode = True
+            self.model.eval()
             obs = env.reset()
-            for _ in range(1000):
+            for _ in range(10000):
                 env.render()
                 a = self.get_action(obs)
                 obs, reward, done, info = env.step(a)
                 if done:
                     break
-            env.close()
+            self.model.train()
             self.eval = False
         
         
