@@ -307,6 +307,7 @@ class PGbaselineCategoricalNetwork(nn.Module):
         self.action_dim = action_dim
         
         self.affine1 = nn.Linear(self.input_shape, 256)                # 两个部分共用一个特征提取网络
+        # self.dropout = nn.Dropout(p=0.6)      # p: probability of an element to be zeroed
         self.action_head = nn.Linear(256, self.action_dim)   # 策略函数
         self.baseline = nn.Linear(256, 1)               # baseline函数
                 
@@ -324,7 +325,30 @@ class PGbaselineCategoricalNetwork(nn.Module):
 
 
 
+# A2CType = namedtuple('a2c', ['action_prob', 'value'])
 
+class A2CCategoricalNetwork(nn.Module):
+    def __init__(self, input_shape=None, action_dim=None):
+        super(A2CCategoricalNetwork, self).__init__()
+        
+        self.input_shape = input_shape
+        self.action_dim = action_dim
+        
+        self.affine1 = nn.Linear(self.input_shape, 256)                # 两个部分共用一个特征提取网络
+        # self.dropout = nn.Dropout()
+        self.action_head = nn.Linear(256, self.action_dim)   # 策略函数
+        self.values = nn.Linear(256, 1)               # value函数
+                
+ 
+        
+    def forward(self, obs):   # obs must be a tensor
+        x = F.relu(self.affine1(obs))
+        
+        action_logits = self.action_head(x)
+        values = self.values(x)
+        
+        # return A2CType(F.softmax(action_logits, dim=-1), values)        
+        return F.softmax(action_logits, dim=-1), values
 
 
 

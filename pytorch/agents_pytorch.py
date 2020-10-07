@@ -23,7 +23,7 @@ import gym
 
 from configs import Config
 from replay_memories import ExperienceReplayMemory, PrioritizedReplayMemory
-from networks_pytorch import MLP_pytorch, DuelingNetwork_pytorch, CONV_pytorch, CategoricalNetwork_pytorch, QuantileNetwork_pytorch, CategoricalPolicy, PGbaselineCategoricalNetwork
+from networks_pytorch import MLP_pytorch, DuelingNetwork_pytorch, CONV_pytorch, CategoricalNetwork_pytorch, QuantileNetwork_pytorch, CategoricalPolicy, PGbaselineCategoricalNetwork, A2CCategoricalNetwork
 
 config = Config()
 
@@ -888,6 +888,9 @@ class REINFORCEAgent(object):
         
         
     def get_action(self, obs):  # obs is not a tensor
+        '''
+        for training
+        '''
         obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)   # [1, obs_dim]
         probs = self.policy(obs)   # 产生策略函数，是一个关于action的概率
         m = Categorical(probs)     # 生成一个Categorical分布，在CartPole里是二项分布
@@ -896,6 +899,19 @@ class REINFORCEAgent(object):
         
         return action.item()
         
+    def eval_action(self, obs):
+        '''
+        for evaluation
+        区别在于不进行self.log_probs.append(m.log_prob(action))这一步操作
+        以及不计算梯度
+        '''
+        with torch.no_grad():
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)   # [1, obs_dim]
+            probs = self.policy(obs)   # 产生策略函数，是一个关于action的概率
+            m = Categorical(probs)     # 生成一个Categorical分布，在CartPole里是二项分布
+            action = m.sample()        # 从分布里采样，采出的是索引
+            
+            return action.item()
     
     def train(self):
         R = 0
@@ -935,7 +951,7 @@ class REINFORCEAgent(object):
             ep_return = 0
             obs = env.reset()
             for step in range(10000):
-                action = self.get_action(obs)
+                action = self.eval_action(obs)
                 obs, reward, done, _ =env.step(action)
                 ep_return += reward
                 
@@ -951,7 +967,7 @@ class REINFORCEAgent(object):
         obs = env.reset()
         for _ in range(10000):
             env.render()
-            action = self.get_action(obs)
+            action = self.eval_action(obs)
             obs, reward, done, _ = env.step(action)
             if done:
                 break
@@ -989,7 +1005,7 @@ class PGbaselineAgent(object):
         
         self.policy = policy(self.obs_dim, self.action_dim)
         self.policy.to(self.device)
-        # self.optimizer = optim.RMSprop(self.net.parameters(), lr=learning_rate, weight_decay=decay_rate)
+        # self.optimizer = optim.RMSprop(self.policy.parameters(), lr=learning_rate, weight_decay=decay_rate)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
         '''
         优化算法和学习率的影响好大啊，用RMSprop算了半个小时，没跑通，用Adam 5分钟跑通了CartPole...
@@ -1021,6 +1037,16 @@ class PGbaselineAgent(object):
         self.log_probs_baseline.append((m.log_prob(action), baseline))
         
         return action.item()
+        
+    def eval_action(self, obs):
+        with torch.no_grad():
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)
+            probs, baseline = self.policy(obs)
+            m = Categorical(probs)
+            action = m.sample()
+            
+            
+            return action.item()
 
 
     def compute_return(self):
@@ -1034,7 +1060,7 @@ class PGbaselineAgent(object):
         
     def train(self):
         
-        returns = torch.tensor(self.returns, device=self.device)
+        returns = torch.tensor(self.returns)
         returns = (returns - returns.mean()) / (returns.std() + 1e-6)
        
         for (log_prob, baseline), R in zip(self.log_probs_baseline, returns):
@@ -1066,7 +1092,7 @@ class PGbaselineAgent(object):
             ep_return = 0
             obs = env.reset()
             for step in range(10000):
-                action = self.get_action(obs)
+                action = self.eval_action(obs)
                 obs, reward, done, _ =env.step(action)
                 ep_return += reward
                 
@@ -1082,7 +1108,7 @@ class PGbaselineAgent(object):
         obs = env.reset()
         for _ in range(10000):
             env.render()
-            action = self.get_action(obs)
+            action = self.eval_action(obs)
             obs, reward, done, _ = env.step(action)
             if done:
                 break
@@ -1100,8 +1126,142 @@ class PGbaselineAgent(object):
             print('No "{}" exits for loading'.format(path))
             
             
+
+
             
+class A2CAgent(object):
+    def __init__(self, env_name=None, policy=A2CCategoricalNetwork, eval_mode=False, config=config):
+        
+        self.env_name = env_name
+        self.env = gym.make(self.env_name)
+        self.env.seed(config.training_env_seed)
+        
+        
+        self.obs_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.n
+        
+        self.device = config.device
+        self.lr = config.lr
+        self.gamma = config.gamma
+        
+        self.policy = policy(self.obs_dim, self.action_dim)
+        self.policy.to(self.device)
+        # self.optimizer = optim.RMSprop(self.policy.parameters(), lr=learning_rate, weight_decay=decay_rate)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
+        '''
+        
+        '''
+        
+        if eval_mode:
+            self.policy.eval()
+        else:
+            self.policy.train()
+        
+        
+        self.log_probs_values = []    # 里面的元素也是列表
+        self.rewards = []
+        self.Q_values = []
+        self.loss = []
+        self.value_loss = []
+        
+        
+    def get_action(self, obs):  # obs is not a tensor
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)
+        probs, values = self.policy(obs)
+        m = Categorical(probs)
+        action = m.sample()            
+        
+        self.log_probs_values[-1].append((m.log_prob(action), values))     # 注意和之前的不同
+        
+        return action.item()
+        
+    def eval_action(self, obs):
+        with torch.no_grad():
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)
+            probs, values = self.policy(obs)
+            m = Categorical(probs)
+            action = m.sample()            
             
+            return action.item()
+  
+        
+                
+    def train(self):
+        R = 0
+        for episode_id, episode_reward_list in enumerate(self.rewards):
+            for i, r in enumerate(episode_reward_list):
+                if i == len(episode_reward_list) - 1:
+                    R = torch.scalar_tensor(r)
+                else:     # self.log_probs_values.shape: [[(porbs, values), (porbs, values), (porbs, values)], [...], [...], [...]]
+                    R = r + self.gamma * self.log_probs_values[episode_id][i+1][1]     # Q = r + gamma * V(s')
+                self.Q_values.append(R)
+                
+        flatten_log_probs_values = [sample for episode in self.log_probs_values for sample in episode]
+        
+
+       
+        for (log_prob, value), Q in zip(flatten_log_probs_values, self.Q_values):
+            advantage = Q - value    # A(s,a) = Q(s,a) - V(s)，但其实这里已经是用了Advantage function的估计值 delta了，delta = r+gamma*V(s')-V(s)
+            self.loss.append(-log_prob * advantage)                               # policy gradient
+            self.value_loss.append(F.smooth_l1_loss(value.squeeze(), Q.squeeze()))        # value function approximation
+        
+        self.optimizer.zero_grad()
+        policy_loss = torch.stack(self.loss).to(self.device).sum()
+        value_loss = torch.stack(self.value_loss).to(self.device).sum()
+        loss = policy_loss + value_loss
+        
+        loss.backward()
+        
+        self.optimizer.step()
+        
+        # print('loss: {:2f}---policy_loss: {:2f}---value_loss: {:2f}'.format(loss.item(), policy_loss.item(), value_loss.item()))
+    
+        del self.log_probs_values[:]
+        del self.rewards[:]
+        del self.Q_values[:]
+        del self.loss[:]
+        del self.value_loss[:]
+        
+    
+    def eval_(self, env, n_trajs=5):
+        self.policy.eval()
+        returns = []
+        for i in range(n_trajs):
+            ep_return = 0
+            obs = env.reset()
+            for step in range(10000):
+                action = self.eval_action(obs)
+                obs, reward, done, _ =env.step(action)
+                ep_return += reward
+                
+                if done:
+                    returns.append(ep_return)
+                    break 
+        self.policy.train()
+        return np.array(returns).mean()
+    
+    
+    def render(self, env):
+        self.policy.eval()
+        obs = env.reset()
+        for _ in range(10000):
+            env.render()
+            action = self.eval_action(obs)
+            obs, reward, done, _ = env.step(action)
+            if done:
+                break
+        self.policy.train()
+        
+        
+    def save(self, step):
+        torch.save(self.policy.state_dict(), './a2c_{}.pkl'.format(step))
+        
+    def load(self, path):
+        if os.path.isfile(path):
+            self.policy.load_state_dict(torch.load(path))
+            # self.policy.load_state_dict(torch.load(path), map_location=lambda storage, loc: storage))  # 在gpu上训练，load到cpu上的时候可能会用到
+        else:
+            print('No "{}" exits for loading'.format(path))            
             
 
 
