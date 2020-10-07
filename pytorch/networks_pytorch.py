@@ -7,7 +7,7 @@ Created on Wed Aug 26 16:20:23 2020
 """
 
 import math
-
+from collections import namedtuple
 
 import torch
 import torch.nn as nn
@@ -275,11 +275,51 @@ class QuantileDuelingNetwork_pytorch(nn.Module):
 
 
 
+class CategoricalPolicy(nn.Module):
+    def __init__(self, input_shape, action_dim):
+        super(CategoricalPolicy, self).__init__()
+        
+        self.input_shape = input_shape
+        self.action_dim = action_dim
+        self.affine1 = nn.Linear(self.input_shape, 128)
+        self.dropout = nn.Dropout(p=0.6)      # p: probability of an element to be zeroed
+        self.affine2 = nn.Linear(128, self.action_dim)
+        
+
+        
+    def forward(self, obs):   # obs must be a tensor
+        x = self.affine1(obs)
+        x = self.dropout(x)
+        x = F.relu(x)
+        action_logits = self.affine2(x)
+        actions = F.softmax(action_logits, dim=-1)
+        return actions
 
 
 
 
-
+# PGbaselineType = namedtuple('pgbaseline', ['action_prob', 'baseline'])
+class PGbaselineCategoricalNetwork(nn.Module):
+    def __init__(self, input_shape=None, action_dim=None):
+        super(PGbaselineCategoricalNetwork, self).__init__()
+        
+        self.input_shape = input_shape
+        self.action_dim = action_dim
+        
+        self.affine1 = nn.Linear(self.input_shape, 256)                # 两个部分共用一个特征提取网络
+        self.action_head = nn.Linear(256, self.action_dim)   # 策略函数
+        self.baseline = nn.Linear(256, 1)               # baseline函数
+                
+ 
+        
+    def forward(self, obs):   # obs must be a tensor
+        x = F.relu(self.affine1(obs))
+        
+        action_logits = self.action_head(x)
+        baseline = self.baseline(x)
+        
+        # return PGbaselineType(F.softmax(action_logits, dim=-1), baseline)        
+        return F.softmax(action_logits, dim=-1), baseline
 
 
 

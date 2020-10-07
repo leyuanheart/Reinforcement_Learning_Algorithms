@@ -16,13 +16,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.distributions import Categorical
 
 
 import gym
 
 from configs import Config
 from replay_memories import ExperienceReplayMemory, PrioritizedReplayMemory
-from networks_pytorch import MLP_pytorch, DuelingNetwork_pytorch, CONV_pytorch, CategoricalNetwork_pytorch, QuantileNetwork_pytorch
+from networks_pytorch import MLP_pytorch, DuelingNetwork_pytorch, CONV_pytorch, CategoricalNetwork_pytorch, QuantileNetwork_pytorch, CategoricalPolicy, PGbaselineCategoricalNetwork
 
 config = Config()
 
@@ -285,8 +286,11 @@ class CategoricalDQNAgentPytorch(object):
             
             self.env_name = env_name
             self.env = gym.make(env_name)
+            self.env.seed(config.training_env_seed)
+            
             self.obs_dim = self.env.observation_space.shape[0]   # 根据环境来设置
             self.action_dim = self.env.action_space.n
+            
             self.eval_mode = eval_mode
             
             
@@ -317,12 +321,18 @@ class CategoricalDQNAgentPytorch(object):
             
             
             self.network = network
+            self.device = config.device
+            self.supports.to(self.device)
             # self.double = double
             
     
             self.model = self.network(self.obs_dim, self.action_dim, self.atoms)
             self.target_model = self.network(self.obs_dim, self.action_dim, self.atoms)
             self.target_model.load_state_dict(self.model.state_dict())
+            
+            # move to correct device
+            self.model = self.model.to(self.device)
+            self.target_model.to(self.device)
             
             # train和eval模式的差别主要是Batch Normalization和Dropout的使用差别
             if self.eval_mode:
@@ -333,6 +343,7 @@ class CategoricalDQNAgentPytorch(object):
                 self.target_model.train()
             
             self.optimizer = optim.Adam(self.model.parameters(), self.lr)
+            # self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100000, gamma = 0.1)
             # loss 自己在下面写
                     
             self.update_count = 0
@@ -361,11 +372,11 @@ class CategoricalDQNAgentPytorch(object):
             #     obses_t, actions, rewards, obses_tp1, dones = transitions
             obses_t, actions, rewards, obses_tp1, dones = zip(*transitions)
             
-            obses_t = torch.tensor(obses_t, dtype=torch.float)
-            actions = torch.tensor(actions, dtype=torch.long).squeeze().view(-1, 1, 1).expand(-1, -1, self.atoms)
-            rewards = torch.tensor(rewards, dtype=torch.float).squeeze().view(-1, 1, 1)
-            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float)
-            dones = torch.tensor(dones, dtype=torch.int32).squeeze().view(-1, 1, 1)  
+            obses_t = torch.tensor(obses_t, dtype=torch.float, device=self.device)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device).squeeze().view(-1, 1, 1).expand(-1, -1, self.atoms)
+            rewards = torch.tensor(rewards, dtype=torch.float, device=self.device).squeeze().view(-1, 1, 1)
+            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float, device=self.device)
+            dones = torch.tensor(dones, dtype=torch.int32, device=self.device).squeeze().view(-1, 1, 1)  
                         
             
             #============= compute loss ===================              
@@ -448,10 +459,11 @@ class CategoricalDQNAgentPytorch(object):
             # optimize the model
             self.optimizer.zero_grad()
             loss.backward()
-            for param in self.model.parameters():      # 梯度裁剪非常有用！！！
-                param.grad.data.clamp(-1, 1)
+            # for param in self.model.parameters():      # 梯度裁剪非常有用！！！
+            #     param.grad.data.clamp(-1, 1)
             self.optimizer.step()
-                   
+            # self.scheduler.step()
+            
             self.losses.append(loss.item())
             
             # update target model
@@ -467,14 +479,16 @@ class CategoricalDQNAgentPytorch(object):
             #         self.render()
                 
         
-        def eval_(self, n_trajs):
-            env = gym.make(self.env_name)
-            self.eval = True
-            episode_return = 0
-            episode_length = 0            
+        def eval_(self, env, n_trajs):
+            self.eval_mode = True
+            self.model.eval()
+            
             for _ in range(n_trajs):
+                episode_return = 0
+                episode_length = 0
                 obs = env.reset()
-                for _ in range(1000):
+                
+                for _ in range(10000):
                     a = self.get_action(obs)
                     obs, reward, done, info = env.step(a)
                     episode_return += reward
@@ -483,13 +497,11 @@ class CategoricalDQNAgentPytorch(object):
                     if done:
                         self.rewards.append(episode_return)
                         self.episode_length.append(episode_length)
-                        episode_return = 0
-                        episode_length = 0
                         break
                         
             # print('eval {} trajs, mean return: {}'.format(n_trajs, np.mean(episode_returns)))
-            env.close()
-            self.eval = False
+            self.model.train()
+            self.eval_mode = False
             return np.mean(self.rewards[-n_trajs:]), np.max(self.rewards[-n_trajs:]), np.mean(self.episode_length[-n_trajs:]), np.max(self.episode_length[-n_trajs:])
         
 
@@ -499,7 +511,7 @@ class CategoricalDQNAgentPytorch(object):
                 if np.random.random() >= eps or self.eval_mode:
                     # print(s.dtype)
                     obs = np.expand_dims(obs, 0)
-                    obs = torch.tensor(obs, dtype=torch.float)
+                    obs = torch.tensor(obs, dtype=torch.float, device=self.device)
                     next_distribution = self.model(obs) * self.supports
                     q_vals = next_distribution.sum(dim=-1)
                     a = q_vals.max(dim=1)[1]
@@ -529,12 +541,12 @@ class CategoricalDQNAgentPytorch(object):
         
         def save_w(self):
             # Returns a dictionary containing a whole state of the module.
-            torch.save(self.model.state_dict(), './model.dump')
-            torch.save(self.optimizer.state_dict(), './optim.dump')
+            torch.save(self.model.state_dict(), './model.pt')
+            torch.save(self.optimizer.state_dict(), './optim.pt')
             
         def load_w(self):
-            fname_model = './model.dump'
-            fname_optim = './optim.dump'
+            fname_model = './model.pt'
+            fname_optim = './optim.pt'
             
             if os.path.isfile(fname_model):
                 self.model.load_state_dict(torch.load(fname_model))
@@ -557,17 +569,17 @@ class CategoricalDQNAgentPytorch(object):
             return 0.5 * x.pow(2) * cond + delta * (x.abs() - 0.5 * delta) * (1 - cond)
         
         
-        def render(self):
-            env = gym.make(self.env_name)
+        def render(self, env):
             self.eval = True
+            self.model.eval()
             obs = env.reset()
-            for _ in range(1000):
+            for _ in range(10000):
                 env.render()
                 a = self.get_action(obs)
                 obs, reward, done, info = env.step(a)
                 if done:
                     break
-            env.close()
+            self.model.train()
             self.eval = False
 
 
@@ -587,8 +599,11 @@ class QuantileDQNAgentPytorch(object):
             
             self.env_name = env_name
             self.env = gym.make(env_name)
+            self.env.seed(config.training_env_seed)
+            
             self.obs_dim = self.env.observation_space.shape[0]   # 根据环境来设置
             self.action_dim = self.env.action_space.n
+            
             self.eval_mode = eval_mode
             
             
@@ -618,12 +633,17 @@ class QuantileDQNAgentPytorch(object):
             
             
             self.network = network
+            self.device = config.device
             self.double = double
             
     
             self.model = self.network(self.obs_dim, self.action_dim, self.quantiles)
             self.target_model = self.network(self.obs_dim, self.action_dim, self.quantiles)
             self.target_model.load_state_dict(self.model.state_dict())
+            
+            # move to correct device
+            self.model = self.model.to(self.device)
+            self.target_model.to(self.device)
             
             # train和eval模式的差别主要是Batch Normalization和Dropout的使用差别
             if self.eval_mode:
@@ -634,6 +654,7 @@ class QuantileDQNAgentPytorch(object):
                 self.target_model.train()
             
             self.optimizer = optim.Adam(self.model.parameters(), self.lr)
+            # self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100000, gamma = 0.1)
             # loss 自己在下面写
                     
             self.update_count = 0
@@ -662,11 +683,11 @@ class QuantileDQNAgentPytorch(object):
             #     obses_t, actions, rewards, obses_tp1, dones = transitions
             obses_t, actions, rewards, obses_tp1, dones = zip(*transitions)
             
-            obses_t = torch.tensor(obses_t, dtype=torch.float)
-            actions = torch.tensor(actions, dtype=torch.long).squeeze().view(-1, 1, 1).expand(-1, -1, self.quantiles)
-            rewards = torch.tensor(rewards, dtype=torch.float).squeeze().view(-1, 1, 1)
-            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float)
-            dones = torch.tensor(dones, dtype=torch.int32).squeeze().view(-1, 1, 1)  
+            obses_t = torch.tensor(obses_t, dtype=torch.float, device=self.device)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device).squeeze().view(-1, 1, 1).expand(-1, -1, self.quantiles)
+            rewards = torch.tensor(rewards, dtype=torch.float, device=self.device).squeeze().view(-1, 1, 1)
+            obses_tp1 = torch.tensor(obses_tp1, dtype=torch.float, device=self.device)
+            dones = torch.tensor(dones, dtype=torch.int32, device=self.device).squeeze().view(-1, 1, 1)  
                         
             
             #============= compute loss ===================   
@@ -707,9 +728,10 @@ class QuantileDQNAgentPytorch(object):
             # optimize the model
             self.optimizer.zero_grad()
             loss.backward()
-            for param in self.model.parameters():      # 梯度裁剪非常有用！！！
-                param.grad.data.clamp(-1, 1)
+            # for param in self.model.parameters():      # 梯度裁剪非常有用！！！
+            #     param.grad.data.clamp(-40, 40)
             self.optimizer.step()
+            # self.scheduler.step()
                    
             self.losses.append(loss.item())
             
@@ -726,31 +748,31 @@ class QuantileDQNAgentPytorch(object):
             #         self.render()
                 
         
-        def eval_(self, n_trajs):
-            env = gym.make(self.env_name)
-            self.eval = True
-            episode_return = 0
-            episode_length = 0            
-            for _ in range(n_trajs):
-                obs = env.reset()
-                for _ in range(1000):
-                    a = self.get_action(obs)
-                    obs, reward, done, info = env.step(a)
-                    episode_return += reward
-                    episode_length += 1
+        def eval_(self, env, n_trajs):
+                self.eval_mode = True
+                self.model.eval()
+                
+                for _ in range(n_trajs):
+                    episode_return = 0
+                    episode_length = 0
+                    obs = env.reset()
                     
-                    if done:
-                        self.rewards.append(episode_return)
-                        self.episode_length.append(episode_length)
-                        episode_return = 0
-                        episode_length = 0
-                        break
+                    for _ in range(10000):
+                        a = self.get_action(obs)
+                        obs, reward, done, info = env.step(a)
+                        episode_return += reward
+                        episode_length += 1
                         
-            # print('eval {} trajs, mean return: {}'.format(n_trajs, np.mean(episode_returns)))
-            env.close()
-            self.eval = False
-            return np.mean(self.rewards[-n_trajs:]), np.max(self.rewards[-n_trajs:]), np.mean(self.episode_length[-n_trajs:]), np.max(self.episode_length[-n_trajs:])
-        
+                        if done:
+                            self.rewards.append(episode_return)
+                            self.episode_length.append(episode_length)
+                            break
+                            
+                # print('eval {} trajs, mean return: {}'.format(n_trajs, np.mean(episode_returns)))
+                self.model.train()
+                self.eval_mode = False
+                return np.mean(self.rewards[-n_trajs:]), np.max(self.rewards[-n_trajs:]), np.mean(self.episode_length[-n_trajs:]), np.max(self.episode_length[-n_trajs:])
+                
 
                 
         def get_action(self, obs, eps=0.1):   # epsilon-greedy policy
@@ -758,7 +780,7 @@ class QuantileDQNAgentPytorch(object):
                 if np.random.random() >= eps or self.eval_mode:
                     # print(s.dtype)
                     obs = np.expand_dims(obs, 0)
-                    obs = torch.tensor(obs, dtype=torch.float)
+                    obs = torch.tensor(obs, dtype=torch.float, device=self.device)
                     q_vals = self.model(obs).mean(dim=-1)
                     a = q_vals.max(dim=1)[1]            
                     return a.item() 
@@ -787,12 +809,12 @@ class QuantileDQNAgentPytorch(object):
         
         def save_w(self):
             # Returns a dictionary containing a whole state of the module.
-            torch.save(self.model.state_dict(), './model.dump')
-            torch.save(self.optimizer.state_dict(), './optim.dump')
+            torch.save(self.model.state_dict(), './model.pt')
+            torch.save(self.optimizer.state_dict(), './optim.pt')
             
         def load_w(self):
-            fname_model = './model.dump'
-            fname_optim = './optim.dump'
+            fname_model = './model.pt'
+            fname_optim = './optim.pt'
             
             if os.path.isfile(fname_model):
                 self.model.load_state_dict(torch.load(fname_model))
@@ -815,18 +837,272 @@ class QuantileDQNAgentPytorch(object):
             return 0.5 * x.pow(2) * cond + delta * (x.abs() - 0.5 * delta) * (1 - cond)
         
         
-        def render(self):
-            env = gym.make(self.env_name)
+        def render(self, env):
             self.eval = True
+            self.model.eval()
             obs = env.reset()
-            for _ in range(1000):
+            for _ in range(10000):
                 env.render()
                 a = self.get_action(obs)
                 obs, reward, done, info = env.step(a)
                 if done:
                     break
-            env.close()
+            self.model.train()
             self.eval = False
 
 
+
         
+class REINFORCEAgent(object):
+    def __init__(self, env_name=None, policy=CategoricalPolicy, eval_mode=False, config=config):
+        self.env_name = env_name
+        self.env = gym.make(self.env_name)
+        self.env.seed(config.training_env_seed)
+        
+        self.obs_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.n
+        
+        self.device = config.device
+        self.lr = config.lr
+        self.gamma = config.gamma
+        
+        self.policy = policy(self.obs_dim, self.action_dim)
+        self.policy.to(self.device)
+        
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
+        
+        
+        self.eval_mode = eval_mode
+        
+        if self.eval_mode:
+            self.policy.eval()
+        else:
+            self.policy.train()
+        
+        self.log_probs = []          # 用来记录每个时刻t的log(pi(a_t|s_t))
+        self.rewards = []            # 用来记录每个时刻t的reward, r_t
+        self.returns = []            # 用来记录每个时刻t的return, G_t
+        self.loss = []               # 用来记录每个时刻t的loss: G_t * log(pi(a_t|s_t))
+        
+        self.eps = np.finfo(np.float32).eps.item()     # 创建一个很小的浮点数，加在分母，防止0的出现，直接写1e-10也行
+        
+        
+    def get_action(self, obs):  # obs is not a tensor
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)   # [1, obs_dim]
+        probs = self.policy(obs)   # 产生策略函数，是一个关于action的概率
+        m = Categorical(probs)     # 生成一个Categorical分布，在CartPole里是二项分布
+        action = m.sample()        # 从分布里采样，采出的是索引
+        self.log_probs.append(m.log_prob(action))  # 把对应的log概率记录下来, 因为后面导数是对logπ（θ）来求的
+        
+        return action.item()
+        
+    
+    def train(self):
+        R = 0
+        # policy gradient update
+        for r in self.rewards[::-1]:       # 倒序
+            R = r + self.gamma * R              # 计算t到T的reward折现和
+            self.returns.insert(0, R)      # 在最前面插入
+        
+        returns = torch.tensor(self.returns)
+        returns = (returns - returns.mean()) / (returns.std() + self.eps)   # 把returns做一个标准化，这样对于action的矫正会更有效果一些，因为一条成功的轨迹里并不一定是所有action都是好的
+
+        for log_prob, R in zip(self.log_probs, returns):
+            self.loss.append(-log_prob * R)
+            
+        self.optimizer.zero_grad()
+        loss = torch.cat(self.loss).sum()  # self.loss 是一个列表，里面元素是tensor，然后cat一下, 为了能反向传播梯度？？？
+        '''
+        这个loss的计算有些trick，我一开始是这么写的
+        returns = self.returns
+        ...
+        loss = torch.tensor(self.loss, requires_grad=True).sum()
+        结果return就训不上去，我还没搞明白原因 
+        '''
+        loss.backward()
+        self.optimizer.step()
+        
+        del self.rewards[:]                        # 把列表清空，但是列表还在，[]
+        del self.returns[:]
+        del self.log_probs[:]
+        del self.loss[:]
+        
+    
+    def eval_(self, env, n_trajs=5):
+        self.policy.eval()
+        returns = []
+        for i in range(n_trajs):
+            ep_return = 0
+            obs = env.reset()
+            for step in range(10000):
+                action = self.get_action(obs)
+                obs, reward, done, _ =env.step(action)
+                ep_return += reward
+                
+                if done:
+                    returns.append(ep_return)
+                    break 
+        self.policy.train()
+        return np.array(returns).mean()
+    
+    
+    def render(self, env):
+        self.policy.eval()
+        obs = env.reset()
+        for _ in range(10000):
+            env.render()
+            action = self.get_action(obs)
+            obs, reward, done, _ = env.step(action)
+            if done:
+                break
+        self.policy.train()
+        
+        
+    def save(self, step):
+        torch.save(self.policy.state_dict(), './reinforce_{}.pt'.format(step))
+        
+    def load(self, path):
+        if os.path.isfile(path):
+            self.policy.load_state_dict(torch.load(path))
+            # self.policy.load_state_dict(torch.load(path), map_location=lambda storage, loc: storage))  # 在gpu上训练，load到cpu上的时候可能会用到
+        else:
+            print('No "{}" exits for loading'.format(path))
+            
+            
+            
+            
+
+class PGbaselineAgent(object):
+    def __init__(self, env_name=None, policy=PGbaselineCategoricalNetwork, eval_mode=False, config=config):
+        
+        self.env_name = env_name
+        self.env = gym.make(self.env_name)
+        self.env.seed(config.training_env_seed)
+        
+        
+        self.obs_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.n
+        
+        self.device = config.device
+        self.lr = config.lr
+        self.gamma = config.gamma
+        
+        self.policy = policy(self.obs_dim, self.action_dim)
+        self.policy.to(self.device)
+        # self.optimizer = optim.RMSprop(self.net.parameters(), lr=learning_rate, weight_decay=decay_rate)
+        self.optimizer = optim.Adam(self.policy.parameters(), lr=self.lr)
+        '''
+        优化算法和学习率的影响好大啊，用RMSprop算了半个小时，没跑通，用Adam 5分钟跑通了CartPole...
+        但是换成Pong这个游戏，Adam就又不行了，训了一晚上也不见起色(也不一定，只训了5个小时...)
+        
+        这里其实有一个问题，就是我是以每一局作为一条轨迹来计算return的，也就是得1分或者输1分，
+        但是不是应该以一盘作为一条轨迹，agent可能赢了几次，也输了几次，然后以这一条长的轨迹来计算discounted cumulative reward
+        '''
+        
+        if eval_mode:
+            self.policy.eval()
+        else:
+            self.policy.train()
+        
+        
+        self.log_probs_baseline = []
+        self.rewards = []
+        self.returns = []
+        self.loss = []
+        self.baseline_loss = []
+        
+        
+    def get_action(self, obs):  # obs is not a tensor
+        obs = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(dim=0)
+        probs, baseline = self.policy(obs)
+        m = Categorical(probs)
+        action = m.sample()
+        
+        self.log_probs_baseline.append((m.log_prob(action), baseline))
+        
+        return action.item()
+
+
+    def compute_return(self):
+        R = 0
+        for r in self.rewards[::-1]:
+            R = r + self.gamma * R
+            self.returns.insert(0, R)
+        del self.rewards[:]    
+        
+        
+        
+    def train(self):
+        
+        returns = torch.tensor(self.returns, device=self.device)
+        returns = (returns - returns.mean()) / (returns.std() + 1e-6)
+       
+        for (log_prob, baseline), R in zip(self.log_probs_baseline, returns):
+            advantage = R - baseline
+            self.loss.append(-log_prob * advantage)                               # policy gradient
+            self.baseline_loss.append(F.smooth_l1_loss(baseline.squeeze(), R))        # baseline function approximation
+        
+        self.optimizer.zero_grad()
+        policy_loss = torch.stack(self.loss).to(self.device).sum()
+        baseline_loss = torch.stack(self.baseline_loss).to(self.device).sum()
+        loss = policy_loss + baseline_loss
+        
+        loss.backward()
+        
+        self.optimizer.step()
+        
+        # print('loss: {:2f}---policy_loss: {:2f}---baseline_loss: {:2f}'.format(loss.item(), policy_loss.item(), baseline_loss.item()))
+    
+        del self.log_probs_baseline[:]
+        del self.returns[:]
+        del self.loss[:]
+        del self.baseline_loss[:]
+        
+    
+    def eval_(self, env, n_trajs=5):
+        self.policy.eval()
+        returns = []
+        for i in range(n_trajs):
+            ep_return = 0
+            obs = env.reset()
+            for step in range(10000):
+                action = self.get_action(obs)
+                obs, reward, done, _ =env.step(action)
+                ep_return += reward
+                
+                if done:
+                    returns.append(ep_return)
+                    break 
+        self.policy.train()
+        return np.array(returns).mean()
+    
+    
+    def render(self, env):
+        self.policy.eval()
+        obs = env.reset()
+        for _ in range(10000):
+            env.render()
+            action = self.get_action(obs)
+            obs, reward, done, _ = env.step(action)
+            if done:
+                break
+        self.policy.train()
+        
+        
+    def save(self, step):
+        torch.save(self.policy.state_dict(), './vanilla__pgbaseline_{}.pt'.format(step))
+        
+    def load(self, path):
+        if os.path.isfile(path):
+            self.policy.load_state_dict(torch.load(path))
+            # self.policy.load_state_dict(torch.load(path), map_location=lambda storage, loc: storage))  # 在gpu上训练，load到cpu上的时候可能会用到
+        else:
+            print('No "{}" exits for loading'.format(path))
+            
+            
+            
+            
+            
+
+
+
