@@ -15,8 +15,8 @@ class Config(object):
         
         
         #epsilon variables    espislon-greedy exploration
-        self.epsilon_start = 0.1
-        self.epsilon_final = 0.1
+        self.epsilon_start = 0.1   # 1.
+        self.epsilon_final = 0.1   # 0.01
         self.epsilon_decay = 30000
         # epsilon随着traning step增加递减, 探索的越来越少，
         # 但是这不是对于SARSA来说才需要的吗，对于Q-learning，behavior policy可以保持一定的探索程度
