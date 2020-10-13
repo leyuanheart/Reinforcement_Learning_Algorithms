@@ -31,3 +31,13 @@ Value-based方法还会涉及到一个Experience Replay Memory。
 所有的方法我争取用Pytorch和TensorFlow2都实现一遍，目前已经整理好了Pytorch的部分（也不能算完全整理好吧，因为Categorical DQN还没有在`LunarLander-v2`上跑通关，而A2C在`CartPole-v0`上跑了好久才通关，`CartPole-v0`算是RL中的‘Hello world’级别的游戏，这个没跑通的话，说明写得有些问题...）
 
 我还会持续向这里面添加我学习的RL的算法，另外如果也想了解一下具体算法的原理，也欢迎移步[我的博客主页](https://leyuanheart.github.io/)，上面有关于相应RL算法的介绍。
+
+
+
+主要Python package的版本：
+
+- tensorflow==2.1.0
+- torch==1.6.0
+- gym==0.17.2
+- numpy==1.18.5
+- matplotlib==3.2.2
