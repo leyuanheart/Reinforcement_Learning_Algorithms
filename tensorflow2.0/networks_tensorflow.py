@@ -65,7 +65,7 @@ class DuelingNetwork_tensorflow(keras.Model):
         value = self.value(x)
         adv = self.adv(x)
         
-        adv = adv - tf.reduce_mean(adv,keepdims=True)
+        adv = adv - tf.reduce_mean(adv, axis=-1, keepdims=True)
         
         return value + adv
 
