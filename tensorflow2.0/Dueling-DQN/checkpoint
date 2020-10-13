@@ -1,0 +1,2 @@
+model_checkpoint_path: "duelingdqn_cartpole.ckpt"
+all_model_checkpoint_paths: "duelingdqn_cartpole.ckpt"
