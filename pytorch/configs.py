@@ -14,6 +14,7 @@ import torch
 class Config(object):
     def __init__(self):
         
+        # for Pytorch
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         #epsilon variables    espislon-greedy exploration
