@@ -1,2 +1,2 @@
-model_checkpoint_path: "dqn_prioritized_cartpole.ckpt"
-all_model_checkpoint_paths: "dqn_prioritized_cartpole.ckpt"
+model_checkpoint_path: "dqn_prioritized_lunarlander.ckpt"
+all_model_checkpoint_paths: "dqn_prioritized_lunarlander.ckpt"
