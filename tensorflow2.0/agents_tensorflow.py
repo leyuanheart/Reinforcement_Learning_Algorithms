@@ -3,7 +3,7 @@
 """
 Created on Wed Aug 26 17:01:42 2020
 
-@author: didi
+@author: leyuan
 """
 
 
@@ -43,8 +43,11 @@ class DQNAgentTensorflow(object):
             
             self.env_name = env_name
             self.env = gym.make(self.env_name)
+            self.env.seed(config.training_env_seed)
+            
             self.obs_dim = self.env.observation_space.shape[0]   # 根据环境来设置
             self.action_dim = self.env.action_space.n
+            
             self.eval_mode = eval_mode
             
             self.gamma = config.gamma
@@ -75,8 +78,11 @@ class DQNAgentTensorflow(object):
             self.model = self.network(self.action_dim)
             self.target_model = self.network(self.action_dim)
             self.target_model.set_weights(self.model.get_weights())
-                
-            self.optimizer = optimizers.Adam(lr=self.lr)
+            
+            
+            exponential_decay = optimizers.schedules.ExponentialDecay(initial_learning_rate=self.lr, decay_steps=10000, decay_rate=1)
+            self.optimizer = optimizers.Adam(learning_rate=exponential_decay)
+            # self.optimizer = optimizers.Adam(lr=self.lr)
             self.loss = tf.losses.Huber(delta=1., reduction='none')
                     
             self.update_count = 0
@@ -128,10 +134,10 @@ class DQNAgentTensorflow(object):
                 
                 loss = tf.reduce_mean(loss)
                 
-            grads = tape.gradient(loss, self.model.trainable_variables)
-            grads = [tf.clip_by_value(grad, -1, 1) for grad in grads]
+            self.grads = tape.gradient(loss, self.model.trainable_variables)
+            # self.grads = [tf.clip_by_value(grad, -1, 1) for grad in grads]
         
-            self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+            self.optimizer.apply_gradients(zip(self.grads, self.model.trainable_variables))
             
             self.losses.append(loss.numpy())
             
@@ -141,47 +147,54 @@ class DQNAgentTensorflow(object):
                 self.target_model.set_weights(self.model.get_weights())
             
             
-            # 这一段可以放在training loop里
-            # if self.update_count % 10000 == 0:
-            #     mean_returns = self.eval(5)
-            #     if mean_returns > 300:
-            #         self.render()
-                
-        def eval_(self, n_trajs):
-            env = gym.make(self.env_name)
-            self.eval = True
-            episode_return = 0
-            episode_length = 0
+            '''
+            也可以使用soft update: traget_weight = (1 - 0.999) * model_weight + 0.999 * target_weight
+            '''
+            # params = self.model.get_weights()
+            # target_params = self.target_model.get_weights()
+            # for idx in range(len(params)):
+            #     target_params[idx] = (1 - 0.999) * params[idx] + 0.999 * target_params[idx]
+            # self.target_model.set_weights(target_params)
+            
+        
+        def get_action(self, obs, eps=0.1, training=None):   # epsilon-greedy policy
+            if np.random.random() >= eps or self.eval_mode:
+                # print(s.dtype)
+                obs = np.expand_dims(obs, 0)
+                obs = tf.convert_to_tensor(obs, dtype=tf.float32)
+                a = tf.stop_gradient(tf.argmax(self.model(obs, training=training), axis=-1))
+                return a.numpy()[0]
+            else:
+                return np.random.randint(0, self.action_dim)    
+        
+        
+        def eval_(self, env, n_trajs):
+        
+            self.eval_mode = True
+            
             for _ in range(n_trajs):
+                episode_return = 0
+                episode_length = 0
                 obs = env.reset()
-                for _ in range(1000):
-                    a = self.get_action(obs)
-                    obs, reward, done, info = env.step(int(a))
+                for _ in range(10000):
+                    a = self.get_action(obs, training=self.eval_mode)
+                    obs, reward, done, info = env.step(a)
                     episode_return += reward
                     episode_length += 1
                     
                     if done:
                         self.rewards.append(episode_return)
                         self.episode_length.append(episode_length)
-                        episode_return = 0
-                        episode_length = 0
+                     
                         break
                         
             # print('eval {} trajs, mean return: {}'.format(n_trajs, np.mean(episode_returns)))
-            env.close()
-            self.eval = False
+            
+            self.eval_mode = False
             return np.mean(self.rewards[-n_trajs:]), np.max(self.rewards[-n_trajs:]), np.mean(self.episode_length[-n_trajs:]), np.max(self.episode_length[-n_trajs:])
         
         
-        def get_action(self, obs, eps=0.1):   # epsilon-greedy policy
-            if np.random.random() >= eps or self.eval_mode:
-                # print(s.dtype)
-                obs = np.expand_dims(obs, 0)
-                obs = tf.convert_to_tensor(obs, dtype=tf.float32)
-                a = tf.argmax(self.model(obs), axis=-1).numpy()
-                return a
-            else:
-                return np.random.randint(0, self.action_dim)
+        
         
         
         def n_steps_replay(self, transition):
@@ -222,19 +235,19 @@ class DQNAgentTensorflow(object):
                 self.memory = pickle.load(open(fname, 'rb'))
                 
                 
-        def render(self):
+        def render(self, env):
             
-            env = gym.make(self.env_name)
-            self.eval = True
+            
+            self.eval_mode = True
             obs = env.reset()
-            for _ in range(1000):
+            for _ in range(10000):
                 env.render()
-                a = self.get_action(obs)
-                obs, reward, done, info = env.step(int(a))
+                a = self.get_action(obs, training=self.eval_mode)
+                obs, reward, done, info = env.step(a)
                 if done:
                     break
-            env.close()
-            self.eval = False
+
+            self.eval_mode = False
             
 
 
