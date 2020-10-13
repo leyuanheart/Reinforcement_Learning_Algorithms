@@ -384,7 +384,7 @@ class QuantileDQNAgentTensorflow(object):
                 loss = tf.reduce_sum(tf.reduce_mean(quantile_huber_loss, axis=2), axis=1)
                 
                 if self.prioritized:
-                    loss = loss * tf.constant(weights)
+                    loss = loss * tf.constant(weights, dtype=tf.float32)
                     self.memory.update_priorities(replay_buffer_indices, np.abs(tf.squeeze(loss).numpy()).tolist())
                 
                 loss = tf.reduce_mean(loss)
