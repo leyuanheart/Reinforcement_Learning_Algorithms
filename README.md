@@ -37,7 +37,9 @@ Value-based方法还会涉及到一个Experience Replay Memory。
 主要Python package的版本：
 
 - tensorflow==2.1.0
+- tensorflow-probability==0.9
 - torch==1.6.0
+- torchvision== 0.7.0
 - gym==0.17.2
 - numpy==1.18.5
 - matplotlib==3.2.2
