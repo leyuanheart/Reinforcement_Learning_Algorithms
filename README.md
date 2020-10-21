@@ -28,7 +28,7 @@ Value-based方法还会涉及到一个Experience Replay Memory。
 
 最基础的DQN和REINFORCE方法我是在jupyter notebook里完整地写了整个逻辑的代码，剩下的方法就是在jupyter notebook里调用了我分别写在`Config.py`，`networks.py`，`agents.py`和`replay_memories.py`里的类，但是逻辑都是类似的，在jupyter notebook里就写的是Training Loop，然后在`gym`里的`CartPole-v0`和`LunarLander-v2`上跑了一下写的算法（只有部分写了在Lunarlander上跑的结果，因为跑的时间比较长）。
 
-所有的方法我争取用Pytorch和TensorFlow2都实现一遍，目前已经整理好了Pytorch的部分（也不能算完全整理好吧，因为Categorical DQN还没有在`LunarLander-v2`上跑通关，而A2C在`CartPole-v0`上跑了好久才通关，`CartPole-v0`算是RL中的‘Hello world’级别的游戏，这个没跑通的话，说明写得有些问题...）
+所有的方法我争取用Pytorch和TensorFlow2都实现一遍，目前已经整理好了Pytorch的部分（也不能算完全整理好吧，因为Categorical DQN还没有在`LunarLander-v2`上跑通关，而A2C在`CartPole-v0`上跑了好久才通关，`CartPole-v0`算是RL中的‘Hello world’级别的游戏，这个没跑通的话，说明写得有些问题...），TensorFlow版的写完了DQN的Variants和REINFORCE。
 
 我还会持续向这里面添加我学习的RL的算法，另外如果也想了解一下具体算法的原理，也欢迎移步[我的博客主页](https://leyuanheart.github.io/)，上面有关于相应RL算法的介绍。
 
