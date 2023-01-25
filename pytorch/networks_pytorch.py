@@ -53,7 +53,7 @@ class DuelingNetwork_pytorch(nn.Module):
         # advantage head
         self.adv = nn.Linear(64, self.action_dim)
         
-        # 也有把这连个写到一起的
+        # 也有把这两个写到一起的
         # self.out = nn.Linear(64, self.action_dim + 1)
         # 但是我总觉得这样不算是真正地解耦value和advantage函数
         
