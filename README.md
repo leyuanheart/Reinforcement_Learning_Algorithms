@@ -32,12 +32,36 @@ Value-based方法还会涉及到一个Experience Replay Memory。
 
 我还会持续向这里面添加我学习的RL的算法，另外如果也想了解一下具体算法的原理，也欢迎移步[我的博客主页](https://leyuanheart.github.io/)，上面有关于相应RL算法的介绍。
 
-主要Python package的版本：
+Python以及主要的package的版本：
+
+- python=3.6.8
 
 - tensorflow==2.1.0
+
 - tensorflow-probability==0.9
+
 - torch==1.6.0
+
 - torchvision== 0.7.0
+
 - gym==0.17.2
+
 - numpy==1.18.5
+
 - matplotlib==3.2.2
+
+
+
+新补充的`PPO`，`DDPG`，`TD3`和`SAC`只有Pytorch版本的，代码是单独在各自的文件夹中。
+
+Python以及package有更新：
+
+- python=3.7.16
+
+- torch==1.13.0
+
+- gymnasium==0.26.3（最主要的变化是这个）
+
+- numpy==1.21.5
+
+- matplotlib==3.5.2
