@@ -32,8 +32,6 @@ Value-based方法还会涉及到一个Experience Replay Memory。
 
 我还会持续向这里面添加我学习的RL的算法，另外如果也想了解一下具体算法的原理，也欢迎移步[我的博客主页](https://leyuanheart.github.io/)，上面有关于相应RL算法的介绍。
 
-
-
 主要Python package的版本：
 
 - tensorflow==2.1.0
