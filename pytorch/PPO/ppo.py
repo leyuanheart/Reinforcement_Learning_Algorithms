@@ -252,7 +252,7 @@ config.use_gae = True            # whether use GAE-lambda for advantage estimati
 '''   
 
 
-class PPOAgent(object):
+class PPO(object):
     def __init__(self, obs_dim, action_dim, is_discrete=False, config=None):
         
         # Building actor
