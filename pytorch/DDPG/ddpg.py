@@ -26,6 +26,7 @@ import torch.optim as optim
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class ReplayBuffer(object):
     def __init__(self, obs_dim, action_dim, capacity=int(1e6)):
         '''
@@ -263,42 +264,20 @@ class DDPG(object):
         
 
 
+# def render(env_name, agent, seed=None):
+#     env = gym.make(env_name, render_mode='human')
+#     obs, info = env.reset(seed=seed)
 
-
-# plt.figure(figsize=(10, 5))
-# plt.subplot(121)
-# plt.plot(ddpg_agent.actor_losses)
-# plt.subplot(122)
-# plt.plot(ddpg_agent.critic_losses)
-
-
-# plt.figure(figsize=(10, 5))
-# plt.subplot(121)
-# plt.plot(running_returns)
-# plt.subplot(122)
-# plt.plot(evaluations)
-
-# plt.figure(figsize=(10, 5))
-# plt.subplot(121)
-# plt.plot(pd.Series(running_returns).rolling(100, 20).mean())
-# plt.subplot(122)
-# plt.plot(pd.Series(running_returns).rolling(100, 20).mean())
-
-
-def render(env_name, agent, seed=None):
-    env = gym.make(env_name, render_mode='human')
-    obs, info = env.reset(seed=seed)
-
-    returns = 0
-    for i in range(1000):
-        action = agent.get_action(torch.as_tensor(obs, dtype=torch.float32), action_noise=0)
-        obs, reward, terminated, truncated, _ = env.step(action)
-        returns += reward
-        done = terminated or truncated
-        if done:
-            print(returns)
-            break
-    env.close()
+#     returns = 0
+#     for i in range(1000):
+#         action = agent.get_action(torch.as_tensor(obs, dtype=torch.float32), action_noise=0)
+#         obs, reward, terminated, truncated, _ = env.step(action)
+#         returns += reward
+#         done = terminated or truncated
+#         if done:
+#             print(returns)
+#             break
+#     env.close()
  
 
 # eval_policy(env_name, ddpg_agent, seed)        
