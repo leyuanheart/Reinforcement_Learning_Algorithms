@@ -5,7 +5,7 @@ Created on Sun Jan 29 21:54:42 2023
 @author: leyuan
 
 references:
-    https://github.com/openai/spinningup/tree/038665d62d569055401d91856abb287263096178/spinup/algos/pytorch/ddpg
+    https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ddpg
     https://github.com/sfujim/TD3
 """
 
