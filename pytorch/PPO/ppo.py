@@ -5,7 +5,7 @@ Created on Thu Jan 26 11:09:04 2023
 @author: leyuan
 
 reference:
-    https://github.com/openai/spinningup/tree/038665d62d569055401d91856abb287263096178/spinup/algos/pytorch/ppo
+    https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ppo
 """
 
 import os
