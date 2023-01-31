@@ -227,7 +227,7 @@ class TD3(object):
             actor_loss.backward()
             self.actor_optimizer.step()
             
-            # Unfreeze Q-network so you can optimize it at next DDPG step.
+            # Unfreeze Q-network so you can optimize it at next TD3 step.
             for p in self.critic.parameters():
                 p.requires_grad = True
             
