@@ -233,15 +233,16 @@ class TD3(object):
             
             
             # update the frozen target models (soft update)
-            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-                # target_param.data.copy_(self.rho * target_param.data + (1 - self.rho) * param.data)
-                target_param.data.mul_(self.rho)
-                target_param.data.add_((1 - self.rho) * param.data)
-                
-            for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-                # target_param.data.copy_(self.rho * target_param.data + (1 - self.rho) * param.data)    
-                target_param.data.mul_(self.rho)
-                target_param.data.add_((1 - self.rho) * param.data)
+			with torch.no_grad():
+				for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+					# target_param.data.copy_(self.rho * target_param.data + (1 - self.rho) * param.data)
+					target_param.data.mul_(self.rho)
+					target_param.data.add_((1 - self.rho) * param.data)
+					
+				for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
+					# target_param.data.copy_(self.rho * target_param.data + (1 - self.rho) * param.data)    
+					target_param.data.mul_(self.rho)
+					target_param.data.add_((1 - self.rho) * param.data)
             
         
         
