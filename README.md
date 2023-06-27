@@ -2,8 +2,12 @@
 
 该GitHub仓库收录了我整理的关于强化学习的算法，目前包括以下一些算法：
 
+- 无需梯度的方法：Cross-Entropy method
+
 - 非深度学习的经典RL算法：SARSA和Q-learning for Q-table（针对离散状态空间和离散动作空间）
+
 - 深度学习和强化学习结合的算法
+
 - - Value-based
   - - Deep Q Network (DQN)
     - Double DQN
@@ -49,8 +53,6 @@ Python以及主要的package的版本：
 - numpy==1.18.5
 
 - matplotlib==3.2.2
-
-
 
 新补充的`PPO`，`DDPG`，`TD3`和`SAC`只有Pytorch版本的，代码是单独在各自的文件夹中。
 
